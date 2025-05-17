@@ -1,5 +1,5 @@
-import {useState} from 'react';
-import {getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword} from 'firebase/auth'
+import {useState, useEffect} from 'react';
+import {getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, onAuthStateChanged} from 'firebase/auth'
 import { useNavigate } from 'react-router-dom';
 
 const Login = () => {
@@ -11,6 +11,23 @@ const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  // Check if user is already logged in
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        // User is signed in, redirect to dashboard
+        navigate('/dashboard');
+      } else {
+        // No user is signed in, allow login
+        setLoading(false);
+      }
+    });
+
+    // Cleanup subscription on unmount
+    return () => unsubscribe();
+  }, [auth, navigate]);
 
   // Function to handle sign-in with Google
   const signInWithGoogle = async () => {
@@ -44,6 +61,15 @@ const Login = () => {
               setError(error.message);
               setAuthing(false);
           });
+  }
+
+  // Show loading indicator while checking auth state
+  if (loading) {
+    return (
+      <div className="w-full h-screen flex items-center justify-center bg-[#1a1a1a]">
+        <p className="text-white text-xl">Loading...</p>
+      </div>
+    );
   }
 
   return (
@@ -111,7 +137,7 @@ const Login = () => {
             </div>
         </div>
     </div>
-);
+  );
 }
 
 export default Login;
