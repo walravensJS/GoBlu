@@ -1,11 +1,22 @@
 import { useState } from 'react';
 import { getAuth, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
+import { doc, setDoc, getFirestore } from 'firebase/firestore';
 
 const Signup = () => {
-    // Initialize Firebase authentication and navigation
+    // Initialize Firebase authentication, Firestore, and navigation
     const auth = getAuth();
+    const db = getFirestore();
     const navigate = useNavigate();
+    
+    // Available colors for user profiles with hex codes and names
+    const availableColors = [
+        { hex: '#6E44FF', name: 'Majorelle Blue' },
+        { hex: '#B892FF', name: 'Tropical Indigo' },
+        { hex: '#FFC2E2', name: 'Lavender Pink' },
+        { hex: '#FF90B3', name: 'Baker-Miller Pink' },
+        { hex: '#EF7A85', name: 'Light Coral' }
+    ];
     
     // State variables for managing authentication state, email, password, confirm password, and error messages
     const [authing, setAuthing] = useState(false);
@@ -14,14 +25,42 @@ const Signup = () => {
     const [confirmPassword, setConfirmPassword] = useState('');
     const [error, setError] = useState('');
 
+    // Function to generate a random color from available colors
+    const getRandomColor = () => {
+        const randomIndex = Math.floor(Math.random() * availableColors.length);
+        return availableColors[randomIndex];
+    };
+
+    // Function to save user data to Firestore
+    const saveUserData = async (userId, email, colorData) => {
+        try {
+            await setDoc(doc(db, "users", userId), {
+                email: email,
+                colorHex: colorData.hex,
+                colorName: colorData.name,
+                createdAt: new Date(),
+            });
+            console.log("User data saved successfully");
+        } catch (error) {
+            console.error("Error saving user data: ", error);
+        }
+    };
+
     // Function to handle sign-up with Google
     const signUpWithGoogle = async () => {
         setAuthing(true);
         
         // Use Firebase to sign up with Google
         signInWithPopup(auth, new GoogleAuthProvider())
-            .then(response => {
-                console.log(response.user.uid);
+            .then(async (response) => {
+                const userId = response.user.uid;
+                const userEmail = response.user.email;
+                const randomColor = getRandomColor();
+                
+                // Save user data with random color
+                await saveUserData(userId, userEmail, randomColor);
+                
+                console.log(userId);
                 navigate('/');
             })
             .catch(error => {
@@ -43,8 +82,14 @@ const Signup = () => {
 
         // Use Firebase to create a new user with email and password
         createUserWithEmailAndPassword(auth, email, password)
-            .then(response => {
-                console.log(response.user.uid);
+            .then(async (response) => {
+                const userId = response.user.uid;
+                const randomColor = getRandomColor();
+                
+                // Save user data with random color
+                await saveUserData(userId, email, randomColor);
+                
+                console.log(userId);
                 navigate('/');
             })
             .catch(error => {
@@ -120,6 +165,22 @@ const Signup = () => {
                         className='w-full bg-white text-black font-semibold rounded-md p-4 text-center flex items-center justify-center cursor-pointer mt-7'>
                         Sign Up With Google
                     </button>
+
+                    {/* Information about color assignment */}
+                    <div className='text-gray-400 text-sm mt-6 text-center'>
+                        Your profile will be assigned one of our theme colors:
+                        <div className='flex justify-center mt-2 space-x-2'>
+                            {availableColors.map((color, index) => (
+                                <div 
+                                    key={index}
+                                    className='w-6 h-6 rounded-full' 
+                                    style={{ backgroundColor: color.hex }}
+                                    title={color.name}
+                                ></div>
+                            ))}
+                        </div>
+                        <div className='mt-2'>You can change it later in your profile settings.</div>
+                    </div>
                 </div>
 
                 {/* Link to login page */}

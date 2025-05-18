@@ -1,11 +1,24 @@
 import { useState, useEffect } from 'react';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { Outlet, Navigate, useNavigate } from 'react-router-dom';
-
 // Navigation component for authenticated users
 const Navbar = () => {
   const auth = getAuth();
   const navigate = useNavigate();
+  const user = auth.currentUser;
+
+  if (user !== null) {
+    // The user object has basic properties such as display name, email, etc.
+    const displayName = user.displayName;
+    const email = user.email;
+    const photoURL = user.photoURL;
+    const emailVerified = user.emailVerified;
+
+    console.log(displayName)
+    console.log(email)
+    console.log(photoURL)
+    console.log(emailVerified)
+  } 
 
   const handleLogout = () => {
     auth.signOut()
@@ -30,6 +43,18 @@ const Navbar = () => {
           >
             Logout
           </button>
+          {user && user.photoURL && (
+            <a href="/profile" className="flex gap-2 justify-center hover:text-gray-300">
+              <p>
+                {user.displayName}
+              </p>
+              <img 
+                src={user.photoURL} 
+                alt="User profile" 
+                className="w-8 h-8 rounded-full object-cover"
+              />
+            </a>
+          )}
         </div>
       </div>
     </nav>

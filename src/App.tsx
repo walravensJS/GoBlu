@@ -6,6 +6,7 @@ import AuthRoute from './AuthRoute.tsx';
 import LoggedHome from './pages/LoggedHome.tsx';
 import Layout from './pages/Layout.tsx'; // ✅ Import your Layout component
 import Profile from './pages/Profile.tsx'; // ✅ Import your Layout component
+import Friends from './pages/Friends/Friends.tsx'; // ✅ Import your Layout component
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
           <Route element={<Layout />}> {/* ✅ Layout wraps the nested protected routes */}
             <Route path="/dashboard" element={<LoggedHome />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/friends" element={<Friends />} />
             {/* Add more authenticated routes here */}
           </Route>
         </Route>
