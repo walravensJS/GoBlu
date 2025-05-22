@@ -1,7 +1,7 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { updateProfile, type User } from "firebase/auth";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { auth } from "./../firebase";  // Adjust path if needed
+import { auth } from "../firebase/firebase";  // Adjust path if needed
 import { Camera, Save, AlertCircle, CheckCircle } from "lucide-react";
 
 // Get Firebase app instance from auth

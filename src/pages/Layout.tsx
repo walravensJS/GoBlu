@@ -1,76 +1,9 @@
 import { useState, useEffect } from 'react';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
-import { Outlet, Navigate, useNavigate } from 'react-router-dom';
-// Navigation component for authenticated users
-const Navbar = () => {
-  const auth = getAuth();
-  const navigate = useNavigate();
-  const user = auth.currentUser;
+import { Navigate, Outlet } from 'react-router-dom';
 
-  if (user !== null) {
-    // The user object has basic properties such as display name, email, etc.
-    const displayName = user.displayName;
-    const email = user.email;
-    const photoURL = user.photoURL;
-    const emailVerified = user.emailVerified;
-
-    console.log(displayName)
-    console.log(email)
-    console.log(photoURL)
-    console.log(emailVerified)
-  } 
-
-  const handleLogout = () => {
-    auth.signOut()
-      .then(() => {
-        navigate('/login');
-      })
-      .catch((error) => {
-        console.error('Logout error:', error);
-      });
-  };
-
-  return (
-    <nav className="bg-[#496BDB] text-white p-4">
-      <div className="container mx-auto flex justify-between items-center">
-        <div className="font-bold text-xl">GoBlu</div>
-        <div className="flex space-x-6">
-          <a href="/dashboard" className="hover:text-gray-300">Dashboard</a>
-          <a href="/profile" className="hover:text-gray-300">Profile</a>
-          <button 
-            onClick={handleLogout}
-            className="hover:text-gray-300"
-          >
-            Logout
-          </button>
-          {user && user.photoURL && (
-            <a href="/profile" className="flex gap-2 justify-center hover:text-gray-300">
-              <p>
-                {user.displayName}
-              </p>
-              <img 
-                src={user.photoURL} 
-                alt="User profile" 
-                className="w-8 h-8 rounded-full object-cover"
-              />
-            </a>
-          )}
-        </div>
-      </div>
-    </nav>
-  );
-};
-
-// Footer component
-const Footer = () => {
-  return (
-    <footer className="text-gray-200 p-4 mt-auto">
-      <div className="container mx-auto text-center">
-        <p>© {new Date().getFullYear()} GoBlu. All rights reserved.</p>
-      </div>
-    </footer>
-  );
-};
+import { Navbar } from '../components/functional/main/Navbar';// Navigation component for authenticated user
+import { Footer } from '../components/functional/main/Footer';// Navigation component for authenticated user
 
 // Protected layout component with authentication check
 const Layout = () => {

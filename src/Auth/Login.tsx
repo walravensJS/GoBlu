@@ -1,6 +1,8 @@
 import {useState, useEffect} from 'react';
 import {getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, onAuthStateChanged} from 'firebase/auth'
 import { useNavigate } from 'react-router-dom';
+import { createUserIfNotExists } from '../utils/firestoreHelpers';
+
 
 const Login = () => {
   const auth = getAuth();
@@ -29,39 +31,35 @@ const Login = () => {
     return () => unsubscribe();
   }, [auth, navigate]);
 
-  // Function to handle sign-in with Google
   const signInWithGoogle = async () => {
-      setAuthing(true);
-      
-      // Use Firebase to sign in with Google
-      signInWithPopup(auth, new GoogleAuthProvider())
-          .then(response => {
-              console.log(response.user.uid);
-              navigate('/dashboard');
-          })
-          .catch(error => {
-              console.log(error);
-              setAuthing(false);
-          });
-  }
+    setAuthing(true);
+    
+    try {
+      const result = await signInWithPopup(auth, new GoogleAuthProvider());
+      await createUserIfNotExists(result.user);
+      navigate('/dashboard');
+    } catch (error) {
+      console.log(error);
+      setAuthing(false);
+    }
+  };
+  
 
-  // Function to handle sign-in with email and password
   const signInWithEmail = async () => {
-      setAuthing(true);
-      setError('');
+  setAuthing(true);
+  setError('');
 
-      // Use Firebase to sign in with email and password
-      signInWithEmailAndPassword(auth, email, password)
-          .then(response => {
-              console.log(response.user.uid);
-              navigate('/dashboard');
-          })
-          .catch(error => {
-              console.log(error);
-              setError(error.message);
-              setAuthing(false);
-          });
+  try {
+    const result = await signInWithEmailAndPassword(auth, email, password);
+    await createUserIfNotExists(result.user);
+    navigate('/dashboard');
+  } catch (error: any) {
+    console.log(error);
+    setError(error.message);
+    setAuthing(false);
   }
+};
+
 
   // Show loading indicator while checking auth state
   if (loading) {

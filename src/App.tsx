@@ -4,9 +4,10 @@ import Login from "./Auth/Login.tsx";
 import SignUp from "./Auth/SignUp.tsx";
 import AuthRoute from './AuthRoute.tsx';
 import LoggedHome from './pages/LoggedHome.tsx';
-import Layout from './pages/Layout.tsx'; // ✅ Import your Layout component
-import Profile from './pages/Profile.tsx'; // ✅ Import your Layout component
-import Friends from './pages/Friends/Friends.tsx'; // ✅ Import your Layout component
+import Layout from './pages/Layout.tsx';
+import Profile from './pages/Profile.tsx';
+import Friends from './pages/Friends/Friends.tsx';
+import UserDetail from './pages/Users/UserDetail.tsx';
 
 function App() {
   return (
@@ -17,17 +18,15 @@ function App() {
         <Route path="/signin" element={<Login />} />
         <Route path="/signup" element={<SignUp />} />
 
-        {/* Protected routes with layout */}
         <Route element={<AuthRoute />}>
-          <Route element={<Layout />}> {/* ✅ Layout wraps the nested protected routes */}
+          <Route element={<Layout />}>
             <Route path="/dashboard" element={<LoggedHome />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/friends" element={<Friends />} />
-            {/* Add more authenticated routes here */}
+            <Route path="/users/:userId" element={<UserDetail />} />
           </Route>
         </Route>
-
-        {/* Catch-all */}
+        
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Router>

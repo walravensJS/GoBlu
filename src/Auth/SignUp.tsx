@@ -20,6 +20,7 @@ const Signup = () => {
     
     // State variables for managing authentication state, email, password, confirm password, and error messages
     const [authing, setAuthing] = useState(false);
+    const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -30,12 +31,11 @@ const Signup = () => {
         const randomIndex = Math.floor(Math.random() * availableColors.length);
         return availableColors[randomIndex];
     };
-
-    // Function to save user data to Firestore
-    const saveUserData = async (userId, email, colorData) => {
+    const saveUserData = async (userId, email, colorData, name) => {
         try {
             await setDoc(doc(db, "users", userId), {
                 email: email,
+                name: name,
                 colorHex: colorData.hex,
                 colorName: colorData.name,
                 createdAt: new Date(),
@@ -45,6 +45,7 @@ const Signup = () => {
             console.error("Error saving user data: ", error);
         }
     };
+    
 
     // Function to handle sign-up with Google
     const signUpWithGoogle = async () => {
@@ -58,7 +59,7 @@ const Signup = () => {
                 const randomColor = getRandomColor();
                 
                 // Save user data with random color
-                await saveUserData(userId, userEmail, randomColor);
+                await saveUserData(userId, userEmail, randomColor, response.user.displayName || '');
                 
                 console.log(userId);
                 navigate('/');
@@ -69,35 +70,30 @@ const Signup = () => {
             });
     };
 
-    // Function to handle sign-up with email and password
-    const signUpWithEmail = async () => {
-        // Check if passwords match
-        if (password !== confirmPassword) {
-            setError('Passwords do not match');
-            return;
-        }
-
-        setAuthing(true);
-        setError('');
-
-        // Use Firebase to create a new user with email and password
-        createUserWithEmailAndPassword(auth, email, password)
-            .then(async (response) => {
-                const userId = response.user.uid;
-                const randomColor = getRandomColor();
-                
-                // Save user data with random color
-                await saveUserData(userId, email, randomColor);
-                
-                console.log(userId);
-                navigate('/');
-            })
-            .catch(error => {
-                console.log(error);
-                setError(error.message);
-                setAuthing(false);
-            });
-    };
+    // Update signUpWithEmail function:
+const signUpWithEmail = async (email: string, password: string) => {
+    setError('');
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+    setAuthing(true);
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const randomColor = getRandomColor();
+      await saveUserData(userCredential.user.uid, email, randomColor, name);
+      navigate('/');
+    } catch (error: any) {
+      if (error.code === "auth/email-already-in-use") {
+        setError("This email is already in use. Please sign in or use a different email.");
+      } else {
+        setError("Sign-up failed: " + error.message);
+      }
+    } finally {
+      setAuthing(false);
+    }
+  };
+  
 
     return (
         <div className='w-full h-screen flex'>
@@ -116,6 +112,14 @@ const Signup = () => {
 
                     {/* Input fields for email, password, and confirm password */}
                     <div className='w-full flex flex-col mb-6'>
+                    <input
+    type='text'
+    placeholder='Full Name'
+    className='w-full text-white py-2 mb-4 bg-transparent border-b border-gray-500 focus:outline-none focus:border-white'
+    value={name}
+    onChange={(e) => setName(e.target.value)}
+/>
+
                         <input
                             type='email'
                             placeholder='Email'
@@ -145,8 +149,8 @@ const Signup = () => {
                     {/* Button to sign up with email and password */}
                     <div className='w-full flex flex-col mb-4'>
                         <button
-                            onClick={signUpWithEmail}
-                            disabled={authing}
+  onClick={() => signUpWithEmail(email, password)}
+  disabled={authing}
                             className='w-full bg-transparent border border-white text-white my-2 font-semibold rounded-md p-4 text-center flex items-center justify-center cursor-pointer'>
                             Sign Up With Email and Password
                         </button>

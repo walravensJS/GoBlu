@@ -19,6 +19,10 @@ export const auth = getAuth(app);
 
 const db = getFirestore(app);
 
-
+export const COLLECTIONS = {
+  USERS: "users",
+  FRIENDS: "friends",
+  FRIEND_REQUESTS: "q5A98VdUnENvun7pe1Mn"
+};
 
 export { app, db }; 
