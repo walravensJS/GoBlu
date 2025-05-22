@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
-import { User, Friend } from "../types/user";
-import { useUsers } from "../../services/users/";
-import { useFriends } from "../../services/friends/";
+import { type User, type Friend } from "../services/types";
+import { useUsers } from "../services/users/";
+import { useFriends } from "../services/friends/";
 
 interface UseFriendsLogicReturn {
   searchTerm: string;
