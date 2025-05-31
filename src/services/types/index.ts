@@ -9,21 +9,22 @@ export interface User {
   isActive?: boolean;
 }
 
-export interface Friend {
-  id: string;
-  displayName: string;
-  email: string;
-  photoURL?: string;
-  isActive?: boolean;
-  addedAt?: Timestamp;
-}
-
 export interface FriendRequest {
   id: string;
   from: string;
   to: string;
+  fromUser?: User; // Populated user details
+  toUser?: User;   // Populated user details
   sentAt: Timestamp;
-  status: number; // 0: pending, 1: accepted, 2: rejected
+  status: 'pending' | 'accepted' | 'rejected';
+}
+
+export interface Friend {
+  id: string;
+  userId: string;
+  friendId: string;
+  user?: User; // Friend's user details
+  createdAt: Timestamp;
 }
 
 export type RequestStatus = {
@@ -31,6 +32,7 @@ export type RequestStatus = {
   request: FriendRequest;
 } | null;
 
+// Profile types
 export interface ProfileState {
   user: any | null;
   displayName: string;
