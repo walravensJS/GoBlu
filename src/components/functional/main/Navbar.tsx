@@ -41,7 +41,7 @@ export const Navbar = () => {
         <div className="flex justify-between items-center h-16">
           {/* Logo */}
           <Link to="/dashboard" className="flex items-center">
-            <div className="font-bold text-2xl bg-gradient-to-r from-blue-600 to-indigo-700 bg-clip-text text-transparent">GoBlu</div>
+            <div className="font-bold text-2xl text-blue-600">GoBlu</div>
           </Link>
           
           {/* Desktop Menu */}

@@ -5,6 +5,7 @@ import { auth, db, COLLECTIONS } from '../../firebase/firebase';
 import { MapPin, Calendar, Clock, ArrowLeft, Edit, Trash2, Star, Phone, Globe, DollarSign, Bookmark, BookmarkCheck, ExternalLink } from 'lucide-react';
 import { useGoogleMaps } from '../../components/providers/GoogleMapsProvider';
 import { SavedPlaces } from '../../components/functional/trips/SavedPlaces';
+import { TripFriendsManager } from '../../components/functional/trips/TripFriendsManager';
 
 interface Trip {
   id: string;
@@ -18,6 +19,7 @@ interface Trip {
   savedHotels?: SavedPlace[];
   savedRestaurants?: SavedPlace[];
   savedActivities?: SavedPlace[];
+  sharedWith?: string[]; // Array of user IDs who have access to this trip
 }
 
 interface SavedPlace {
@@ -57,7 +59,7 @@ export default function TripDetail() {
   const [restaurants, setRestaurants] = useState<PlaceData[]>([]);
   const [activities, setActivities] = useState<PlaceData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'hotels' | 'restaurants' | 'activities' | 'saved'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'hotels' | 'restaurants' | 'activities' | 'saved' | 'friends'>('overview');
   const [placesLoading, setPlacesLoading] = useState(false);
 
   // Helper function to remove undefined values from an object
@@ -97,6 +99,7 @@ export default function TripDetail() {
           if (!tripData.savedHotels) tripData.savedHotels = [];
           if (!tripData.savedRestaurants) tripData.savedRestaurants = [];
           if (!tripData.savedActivities) tripData.savedActivities = [];
+          if (!tripData.sharedWith) tripData.sharedWith = [];
           
           setTrip(tripData);
         } else {
@@ -468,6 +471,13 @@ export default function TripDetail() {
           </div>
 
           <div className="flex gap-2">
+            <Link
+              to={`/trips/${trip.id}/place/${place.place_id}/${type}`}
+              className="flex-1 py-2 px-4 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-center text-sm font-medium"
+            >
+              View Details
+            </Link>
+            
             <button
               onClick={() => isSaved ? removePlace(place.place_id, type) : savePlace(place, type)}
               className={`flex-1 py-2 px-4 rounded-lg font-medium text-sm transition-colors ${
@@ -576,7 +586,8 @@ export default function TripDetail() {
               { key: 'hotels', label: 'Hotels' },
               { key: 'restaurants', label: 'Restaurants' },
               { key: 'activities', label: 'Activities' },
-              { key: 'saved', label: `Saved (${(trip.savedHotels?.length || 0) + (trip.savedRestaurants?.length || 0) + (trip.savedActivities?.length || 0)})` }
+              { key: 'saved', label: `Saved (${(trip.savedHotels?.length || 0) + (trip.savedRestaurants?.length || 0) + (trip.savedActivities?.length || 0)})` },
+              { key: 'friends', label: `Friends (${(trip.sharedWith?.length || 0) + 1})` }
             ].map(tab => (
               <button
                 key={tab.key}
@@ -849,21 +860,31 @@ export default function TripDetail() {
             <SavedPlaces
               places={trip.savedHotels || []}
               type="hotels"
+              tripId={trip.id}
               onRemove={(placeId) => removePlace(placeId, 'hotels')}
             />
             
             <SavedPlaces
               places={trip.savedRestaurants || []}
               type="restaurants"
+              tripId={trip.id}
               onRemove={(placeId) => removePlace(placeId, 'restaurants')}
             />
             
             <SavedPlaces
               places={trip.savedActivities || []}
               type="activities"
+              tripId={trip.id}
               onRemove={(placeId) => removePlace(placeId, 'activities')}
             />
           </div>
+        )}
+
+        {activeTab === 'friends' && (
+          <TripFriendsManager 
+            trip={trip} 
+            onTripUpdate={(updatedTrip) => setTrip(updatedTrip)} 
+          />
         )}
       </div>
 

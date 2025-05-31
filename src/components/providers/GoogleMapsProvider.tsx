@@ -1,18 +1,22 @@
-// src/components/providers/GoogleMapsProvider.tsx
-import React, { createContext, useContext, useState } from 'react';
-import { LoadScript } from '@react-google-maps/api';
-
-const libraries: ("places")[] = ['places'];
+import React, { createContext, useContext, useState, useEffect } from 'react';
 
 interface GoogleMapsContextType {
   isLoaded: boolean;
+  loadError: Error | null;
 }
 
 const GoogleMapsContext = createContext<GoogleMapsContextType>({
-  isLoaded: false
+  isLoaded: false,
+  loadError: null,
 });
 
-export const useGoogleMaps = () => useContext(GoogleMapsContext);
+export const useGoogleMaps = () => {
+  const context = useContext(GoogleMapsContext);
+  if (!context) {
+    throw new Error('useGoogleMaps must be used within a GoogleMapsProvider');
+  }
+  return context;
+};
 
 interface GoogleMapsProviderProps {
   children: React.ReactNode;
@@ -20,28 +24,59 @@ interface GoogleMapsProviderProps {
 
 export function GoogleMapsProvider({ children }: GoogleMapsProviderProps) {
   const [isLoaded, setIsLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    // Check if Google Maps is already loaded
+    if (window.google && window.google.maps) {
+      setIsLoaded(true);
+      return;
+    }
+
+    // Check if script is already being loaded
+    const existingScript = document.querySelector('script[src*="maps.googleapis.com"]');
+    if (existingScript) {
+      // Wait for existing script to load
+      existingScript.addEventListener('load', () => setIsLoaded(true));
+      existingScript.addEventListener('error', (error) => setLoadError(new Error('Failed to load Google Maps')));
+      return;
+    }
+
+    // Load Google Maps script
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${import.meta.env.VITE_GOOGLE_API_KEY}&libraries=places`;
+    script.async = true;
+    script.defer = true;
+
+    script.onload = () => {
+      setIsLoaded(true);
+    };
+
+    script.onerror = () => {
+      setLoadError(new Error('Failed to load Google Maps'));
+    };
+
+    document.head.appendChild(script);
+
+    return () => {
+      // Cleanup: remove script if component unmounts
+      const scriptElement = document.querySelector('script[src*="maps.googleapis.com"]');
+      if (scriptElement && scriptElement.parentNode) {
+        scriptElement.parentNode.removeChild(scriptElement);
+      }
+    };
+  }, []);
 
   return (
-    <LoadScript
-      googleMapsApiKey={import.meta.env.VITE_GOOGLE_API_KEY}
-      libraries={libraries}
-      onLoad={() => setIsLoaded(true)}
-      onError={(error) => {
-        console.error('Google Maps failed to load:', error);
-        setIsLoaded(false);
-      }}
-      loadingElement={
-        <div className="w-full h-screen flex items-center justify-center bg-gray-900">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto mb-4"></div>
-            <p className="text-white text-lg">Loading Google Maps...</p>
-          </div>
-        </div>
-      }
-    >
-      <GoogleMapsContext.Provider value={{ isLoaded }}>
-        {children}
-      </GoogleMapsContext.Provider>
-    </LoadScript>
+    <GoogleMapsContext.Provider value={{ isLoaded, loadError }}>
+      {children}
+    </GoogleMapsContext.Provider>
   );
+}
+
+// Type declaration for Google Maps
+declare global {
+  interface Window {
+    google: typeof google;
+  }
 }
