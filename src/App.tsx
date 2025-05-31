@@ -8,6 +8,8 @@ import Layout from './pages/Layout.tsx';
 import Profile from './pages/Profile.tsx';
 import Friends from './pages/Friends/Friends.tsx';
 import UserDetail from './pages/Users/UserDetail.tsx';
+import TripDetail from './pages/Trips/TripDetail.tsx';
+
 
 function App() {
   return (
@@ -24,6 +26,7 @@ function App() {
             <Route path="/profile" element={<Profile />} />
             <Route path="/friends" element={<Friends />} />
             <Route path="/users/:userId" element={<UserDetail />} />
+            <Route path="/trips/:tripId" element={<TripDetail />} />
           </Route>
         </Route>
         

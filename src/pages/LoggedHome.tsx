@@ -1,10 +1,10 @@
 import { useRef, useState, useEffect } from 'react';
-import { LoadScript, Autocomplete } from '@react-google-maps/api';
+import { Autocomplete } from '@react-google-maps/api';
 import { query, where, getDocs, addDoc, collection } from 'firebase/firestore';
 import { auth, db } from '../firebase/firebase';
-import { MapPin, Calendar, Clock, Plus, Sparkles } from 'lucide-react';
-
-const libraries: ("places")[] = ['places'];
+import { MapPin, Calendar, Clock, Plus, Sparkles, Eye } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useGoogleMaps } from '../components/providers/GoogleMapsProvider';
 
 interface Trip {
   id: string;
@@ -18,6 +18,7 @@ interface Trip {
 }
 
 export default function LoggedHome() {
+  const { isLoaded } = useGoogleMaps();
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
   const [location, setLocation] = useState<string>('');
   const [title, setTitle] = useState<string>('');
@@ -27,9 +28,10 @@ export default function LoggedHome() {
   const [userTrips, setUserTrips] = useState<Trip[]>([]);
   const [imageUrl, setImageUrl] = useState<string>('');
   const [isFormVisible, setIsFormVisible] = useState<boolean>(false);
+  const [tripsLoading, setTripsLoading] = useState(true);
 
   const handlePlaceChanged = () => {
-    if (autocompleteRef.current) {
+    if (autocompleteRef.current && isLoaded) {
       const place = autocompleteRef.current.getPlace();
       
       if (place.formatted_address) {
@@ -70,44 +72,62 @@ export default function LoggedHome() {
       setLocation('');
       setImageUrl('');
       setIsFormVisible(false);
+      // Refresh trips list
+      fetchTrips();
     } catch (error) {
       console.error('Error creating trip:', error);
       alert('Failed to create trip.');
     }
   };
 
+  const fetchTrips = async (): Promise<void> => {
+    const user = auth.currentUser;
+    if (!user) {
+      setTripsLoading(false);
+      return;
+    }
+
+    try {
+      setTripsLoading(true);
+      const tripsQuery = query(
+        collection(db, 'trips'),
+        where('userId', '==', user.uid)
+      );
+      const querySnapshot = await getDocs(tripsQuery);
+      const trips: Trip[] = querySnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      } as Trip));
+      setUserTrips(trips);
+    } catch (error) {
+      console.error('Error fetching trips:', error);
+    } finally {
+      setTripsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchTrips = async (): Promise<void> => {
-      const user = auth.currentUser;
-      if (!user) return;
-
-      try {
-        const tripsQuery = query(
-          collection(db, 'trips'),
-          where('userId', '==', user.uid)
-        );
-        const querySnapshot = await getDocs(tripsQuery);
-        const trips: Trip[] = querySnapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        } as Trip));
-        setUserTrips(trips);
-      } catch (error) {
-        console.error('Error fetching trips:', error);
-      }
-    };
-
     fetchTrips();
   }, []);
 
-  return (
-    <LoadScript
-      googleMapsApiKey={import.meta.env.VITE_GOOGLE_API_KEY}
-      libraries={libraries}
-    >
-      <div className="relative overflow-hidden">
+  // Show loading state while Google Maps or trips are loading
+  if (!isLoaded || tripsLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-pink-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-purple-400 mx-auto mb-6"></div>
+          <p className="text-white text-xl">
+            {!isLoaded ? 'Loading Google Maps...' : 'Loading your trips...'}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
-        <div className="relative z-10 container mx-auto px-4 py-8">
+  return (
+    <div className="relative overflow-hidden bg-gradient-to-br from-gray-900 via-purple-900 to-pink-900 min-h-screen">
+
+      <div className="relative z-10 container mx-auto px-4 py-8">
           {/* Header Section */}
           <div className="text-center mb-12">
             <div className="inline-flex items-center gap-2 bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-2 rounded-full text-sm font-medium mb-6 animate-bounce text-white">
@@ -143,7 +163,7 @@ export default function LoggedHome() {
                 {userTrips.map((trip, index) => (
                   <div
                     key={trip.id}
-                    className="group bg-white/10 backdrop-blur-lg rounded-3xl overflow-hidden hover:bg-white/20 transition-all duration-500 hover:scale-105 hover:shadow-2xl hover:shadow-purple-500/25 border border-white/20"
+                    className="group bg-white/10 backdrop-blur-lg rounded-3xl overflow-hidden hover:bg-white/20 transition-all duration-500 hover:scale-105 hover:shadow-2xl hover:shadow-purple-500/25 border border-white/20 relative"
                     style={{
                       animation: `fadeInUp 0.6s ease-out ${index * 0.1}s both`
                     }}
@@ -156,7 +176,19 @@ export default function LoggedHome() {
                         referrerPolicy="no-referrer"
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                      
+                      {/* View Details Button - appears on hover */}
+                      <Link
+                        to={`/trips/${trip.id}`}
+                        className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                      >
+                        <div className="bg-white bg-opacity-20 backdrop-blur-sm text-white px-6 py-3 rounded-2xl font-semibold flex items-center gap-2 hover:bg-opacity-30 transition">
+                          <Eye className="w-5 h-5" />
+                          View Details
+                        </div>
+                      </Link>
                     </div>
+                    
                     <div className="p-6">
                       <h3 className="text-xl font-bold mb-2 group-hover:text-purple-300 transition-colors duration-300">
                         {trip.title}
@@ -169,10 +201,18 @@ export default function LoggedHome() {
                         {new Date(trip.from.seconds * 1000).toLocaleDateString()} –{' '}
                         {new Date(trip.until.seconds * 1000).toLocaleDateString()}
                       </div>
-                      <div className="flex items-center gap-2 text-sm text-gray-400">
+                      <div className="flex items-center gap-2 text-sm text-gray-400 mb-4">
                         <MapPin className="w-4 h-4" />
                         {trip.location}
                       </div>
+                      
+                      {/* Action Button at bottom */}
+                      <Link
+                        to={`/trips/${trip.id}`}
+                        className="block w-full text-center bg-gradient-to-r from-purple-600/80 to-pink-600/80 hover:from-purple-600 hover:to-pink-600 text-white py-2 rounded-xl font-medium transition-all duration-300 transform hover:scale-105"
+                      >
+                        Explore Trip
+                      </Link>
                     </div>
                   </div>
                 ))}
@@ -262,6 +302,7 @@ export default function LoggedHome() {
                       value={location}
                       onChange={(e) => setLocation(e.target.value)}
                       className="w-full p-4 bg-white/10 border border-white/20 rounded-2xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-300 group-hover:bg-white/15"
+                      disabled={!isLoaded}
                     />
                   </Autocomplete>
                 </div>
@@ -310,6 +351,5 @@ export default function LoggedHome() {
           }
         `}</style>
       </div>
-    </LoadScript>
-  );
-}
+    );
+  }

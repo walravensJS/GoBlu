@@ -1,7 +1,17 @@
 import { useState, useMemo } from "react";
-import { type User, type Friend } from "../services/types";
+import { type User, type FriendRequest } from "../services/types";
 import { useUsers } from "../services/users/";
 import { useFriends } from "../services/friends/";
+import { getAuth } from "firebase/auth";
+import { db } from "../firebase/firebase";
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  addDoc,
+  serverTimestamp,
+} from "firebase/firestore";
 
 interface UseFriendsLogicReturn {
   searchTerm: string;
@@ -48,21 +58,44 @@ export function useFriendsLogic(): UseFriendsLogicReturn {
 
   // Placeholder function for adding a friend
   const handleAddFriend = async (userIdToAdd: string): Promise<void> => {
-    console.log("Attempting to add friend:", userIdToAdd);
-    // Replace with your actual Firebase logic:
-    // try {
-    //   await addFriendFunction(loggedInUserId, userIdToAdd);
-    //   alert("Friend added successfully!");
-    //   // Optionally, refetch friends or update UI optimistically
-    // } catch (err) {
-    //   console.error("Failed to add friend:", err);
-    //   alert(`Failed to add friend: ${err.message}`);
-    // }
-    alert(
-      `Placeholder: Implement logic to add friend with ID ${userIdToAdd}.`
-    );
+    try {
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+  
+      if (!currentUser) throw new Error("User not authenticated");
+  
+      const currentUserId = currentUser.uid;
+  
+      // Check if a friend request already exists
+      const requestsRef = collection(db, "friendRequests");
+      const existingQuery = query(
+        requestsRef,
+        where("from", "==", currentUserId),
+        where("to", "==", userIdToAdd),
+        where("status", "==", 0) // pending
+      );
+  
+      const existing = await getDocs(existingQuery);
+      if (!existing.empty) {
+        alert("Friend request already sent.");
+        return;
+      }
+  
+      // Add new friend request
+      const newRequest: Omit<FriendRequest, "id"> = {
+        from: currentUserId,
+        to: userIdToAdd,
+        sentAt: serverTimestamp() as any, // Firestore Timestamp
+        status: 0, // pending
+      };
+  
+      await addDoc(requestsRef, newRequest);
+      alert("Friend request sent!");
+    } catch (err: any) {
+      console.error("Failed to send friend request:", err);
+      alert(`Error: ${err.message}`);
+    }
   };
-
   const handleFindPeople = (): void => {
     const input = document.querySelector('input[type="text"]') as HTMLInputElement;
     if (input) input.focus();

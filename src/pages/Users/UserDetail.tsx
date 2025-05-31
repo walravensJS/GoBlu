@@ -18,11 +18,15 @@ export default function UserDetail() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionMessage, setActionMessage] = useState(null);
 
+  
+
   // Fetch user data
   useEffect(() => {
     if (userId) {
       const fetchUser = async () => {
         const userData = await getUserById(userId);
+        console.log("Fetched user:", userData); // Add this line to see what is returned
+
         setUser(userData);
       };
       

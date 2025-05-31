@@ -38,9 +38,23 @@ export function useUsers() {
   /**
    * Get a user by their ID
    */
-  const getUserById = (userId: string): User | undefined => {
-    return users.find(user => user.id === userId);
-  };
+  // Inside useUsers:
+const getUserById = async (userId: string): Promise<User | undefined> => {
+  if (loading) {
+    // Wait until users are loaded (poll or use event)
+    // Simplest: wait in a loop (or you can redesign this)
+    return new Promise((resolve) => {
+      const interval = setInterval(() => {
+        if (!loading) {
+          clearInterval(interval);
+          resolve(users.find(user => user.id === userId));
+        }
+      }, 100);
+    });
+  }
+  return users.find(user => user.id === userId);
+};
+
 
   /**
    * Get details for a user, with fallback values if not found
