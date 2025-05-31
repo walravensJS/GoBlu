@@ -8,7 +8,8 @@ import {
   doc,
   updateDoc,
   deleteDoc,
-  serverTimestamp
+  serverTimestamp,
+  getDocs
 } from "firebase/firestore";
 import { db, auth, COLLECTIONS } from "../../firebase/firebase";
 import { type FriendRequest, type RequestStatus } from "../types";
@@ -36,13 +37,15 @@ export function useFriendRequests() {
     // Query for incoming requests (where current user is the recipient)
     const incomingRequestsQuery = query(
       collection(db, COLLECTIONS.FRIEND_REQUESTS),
-      where("to", "==", currentUserId)
+      where("to", "==", currentUserId),
+      where("status", "==", 0) // Only pending requests
     );
     
     // Query for outgoing requests (where current user is the sender)
     const outgoingRequestsQuery = query(
       collection(db, COLLECTIONS.FRIEND_REQUESTS),
-      where("from", "==", currentUserId)
+      where("from", "==", currentUserId),
+      where("status", "==", 0) // Only pending requests
     );
     
     // Set up listeners
@@ -78,12 +81,53 @@ export function useFriendRequests() {
   }, [currentUserId]);
 
   /**
+   * Check if a friend request already exists between users
+   */
+  const hasExistingRequest = async (toUserId: string): Promise<boolean> => {
+    if (!currentUserId) return false;
+    
+    try {
+      // Check for existing requests in both directions
+      const outgoingQuery = query(
+        collection(db, COLLECTIONS.FRIEND_REQUESTS),
+        where("from", "==", currentUserId),
+        where("to", "==", toUserId),
+        where("status", "==", 0)
+      );
+      
+      const incomingQuery = query(
+        collection(db, COLLECTIONS.FRIEND_REQUESTS),
+        where("from", "==", toUserId),
+        where("to", "==", currentUserId),
+        where("status", "==", 0)
+      );
+      
+      const [outgoingSnapshot, incomingSnapshot] = await Promise.all([
+        getDocs(outgoingQuery),
+        getDocs(incomingQuery)
+      ]);
+      
+      return !outgoingSnapshot.empty || !incomingSnapshot.empty;
+    } catch (error) {
+      console.error("Error checking existing requests:", error);
+      return false;
+    }
+  };
+
+  /**
    * Send a friend request to another user
    */
   const sendFriendRequest = async (toUserId: string): Promise<boolean> => {
     if (!currentUserId) return false;
     
     try {
+      // Check if request already exists
+      const hasRequest = await hasExistingRequest(toUserId);
+      if (hasRequest) {
+        console.log("Friend request already exists");
+        return false;
+      }
+      
       const requestsCollection = collection(db, COLLECTIONS.FRIEND_REQUESTS);
       await addDoc(requestsCollection, {
         from: currentUserId,
@@ -123,9 +167,18 @@ export function useFriendRequests() {
       });
       
       // If accepting, add to friends list
-      const request = incomingRequests.find(r => r.id === requestId);
-      if (newStatus === 1 && request && currentUserId) { // 1 for accepted
-        await addFriend(request.from);
+      if (newStatus === 1) { // 1 for accepted
+        const request = incomingRequests.find(r => r.id === requestId);
+        if (request && currentUserId) {
+          const success = await addFriend(request.from);
+          if (success) {
+            // Delete the request after successful friend addition
+            await deleteDoc(requestRef);
+          }
+        }
+      } else {
+        // If rejecting, delete the request
+        await deleteDoc(requestRef);
       }
       
       return true;
@@ -167,6 +220,7 @@ export function useFriendRequests() {
     cancelRequest,
     respondToRequest,
     getRequestStatus,
-    getPendingIncomingRequests
+    getPendingIncomingRequests,
+    hasExistingRequest
   };
 }

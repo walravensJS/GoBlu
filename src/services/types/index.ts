@@ -9,6 +9,15 @@ export interface User {
   isActive?: boolean;
 }
 
+export interface Friend {
+  id: string;
+  displayName: string;
+  email: string;
+  photoURL?: string;
+  isActive?: boolean;
+  addedAt?: Timestamp;
+}
+
 export interface FriendRequest {
   id: string;
   from: string;
@@ -21,3 +30,18 @@ export type RequestStatus = {
   type: "incoming" | "outgoing";
   request: FriendRequest;
 } | null;
+
+export interface ProfileState {
+  user: any | null;
+  displayName: string;
+  photoFile: File | null;
+  previewPhoto: string | null;
+  loading: boolean;
+  message: string;
+  error: string | null;
+}
+
+export interface ProfileUpdateData {
+  displayName?: string;
+  photoURL?: string;
+}

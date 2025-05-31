@@ -1,92 +1,43 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useUsers } from "../../services/users";
-import { useFriends } from "../../services/friends"; // Use your existing hook
-import { db, auth, COLLECTIONS } from "../../firebase/firebase";
-import { doc, setDoc, getDoc, addDoc, collection, updateDoc, query, where, getDocs } from "firebase/firestore";
-import { type User, type FriendRequest } from "../../services/types/index";
+import { useFriends, useFriendRequests } from "../../services/friends";
+import { auth } from "../../firebase/firebase";
+import { type User } from "../../services/types/index";
 
 export default function UserDetail() {
   const params = useParams<{ userId: string }>();
   const userId = params.userId;
   const { getUserById, loading: loadingUser, error: userError } = useUsers();
   const { isFriend, addFriend, removeFriend, loading: loadingFriends } = useFriends();
+  const { 
+    sendFriendRequest, 
+    respondToRequest, 
+    getRequestStatus,
+    loading: loadingRequests 
+  } = useFriendRequests();
+  
   const currentUserId: string | undefined = auth.currentUser?.uid;
   
   const [user, setUser] = useState<User | null>(null); 
-  const [friendRequestStatus, setFriendRequestStatus] = useState<FriendRequest | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [actionMessage, setActionMessage] = useState(null);
-
-  
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   // Fetch user data
   useEffect(() => {
     if (userId) {
-      const fetchUser = async () => {
-        const userData = await getUserById(userId);
-        console.log("Fetched user:", userData); // Add this line to see what is returned
-
-        setUser(userData);
-      };
-      
-      fetchUser();
+      const userData = getUserById(userId);
+      setUser(userData || null);
     }
   }, [userId, getUserById]);
 
-  // Check friend request status
+  // Clear action message after a few seconds
   useEffect(() => {
-    const checkFriendRequestStatus = async () => {
-      if (!userId || !currentUserId) return;
-      
-      try {
-        // Check for pending request in the friends collection
-        const friendsRef = collection(db, "friends");
-        
-        // Check outgoing request (from current user to profile user)
-        const outgoingQuery = query(
-          friendsRef, 
-          where("from", "==", currentUserId),
-          where("to", "==", userId)
-        );
-        
-        // Check incoming request (from profile user to current user)
-        const incomingQuery = query(
-          friendsRef, 
-          where("from", "==", userId),
-          where("to", "==", currentUserId)
-        );
-        
-        const outgoingSnapshot = await getDocs(outgoingQuery);
-        const incomingSnapshot = await getDocs(incomingQuery);
-        
-        if (!outgoingSnapshot.empty) {
-          // We found an outgoing request
-          const requestDoc = outgoingSnapshot.docs[0];
-          setFriendRequestStatus({
-            id: requestDoc.id,
-            ...requestDoc.data(),
-            direction: "outgoing"
-          });
-        } else if (!incomingSnapshot.empty) {
-          // We found an incoming request
-          const requestDoc = incomingSnapshot.docs[0];
-          setFriendRequestStatus({
-            id: requestDoc.id,
-            ...requestDoc.data(),
-            direction: "incoming"
-          });
-        } else {
-          // No request found
-          setFriendRequestStatus(null);
-        }
-      } catch (error) {
-        console.error("Error checking friend request status:", error);
-      }
-    };
-
-    checkFriendRequestStatus();
-  }, [userId, currentUserId]);
+    if (actionMessage) {
+      const timer = setTimeout(() => setActionMessage(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [actionMessage]);
 
   // Handle sending a friend request
   const handleSendFriendRequest = async () => {
@@ -94,23 +45,13 @@ export default function UserDetail() {
     
     setIsSubmitting(true);
     try {
-      // Create a new friend request document
-      await addDoc(collection(db, "friends"), {
-        from: currentUserId,
-        to: userId,
-        sentAt: new Date().toISOString(),
-        status: "pending"
-      });
+      const success = await sendFriendRequest(userId);
       
-      setActionMessage("Friend request sent successfully!");
-      // Update the local state to show the pending request
-      setFriendRequestStatus({
-        from: currentUserId,
-        to: userId,
-        status: "pending",
-        direction: "outgoing",
-        sentAt: new Date().toISOString()
-      });
+      if (success) {
+        setActionMessage("Friend request sent successfully!");
+      } else {
+        setActionMessage("Failed to send friend request. A request may already exist.");
+      }
     } catch (error) {
       console.error("Error sending friend request:", error);
       setActionMessage("Failed to send friend request. Please try again.");
@@ -121,25 +62,20 @@ export default function UserDetail() {
 
   // Handle accepting a friend request
   const handleAcceptFriendRequest = async () => {
-    if (!friendRequestStatus || !friendRequestStatus.id) return;
+    if (!userId) return;
+    
+    const requestStatus = getRequestStatus(userId);
+    if (!requestStatus || requestStatus.type !== "incoming") return;
     
     setIsSubmitting(true);
     try {
-      // Update the request status to "accepted"
-      const requestRef = doc(db, "friends", friendRequestStatus.id);
-      await updateDoc(requestRef, {
-        status: "accepted"
-      });
+      const success = await respondToRequest(requestStatus.request.id, 1); // 1 = accepted
       
-      // Also add the user to friends list using your existing addFriend function
-      await addFriend(userId);
-      
-      setActionMessage("Friend request accepted!");
-      // Update local state
-      setFriendRequestStatus({
-        ...friendRequestStatus,
-        status: "accepted"
-      });
+      if (success) {
+        setActionMessage("Friend request accepted!");
+      } else {
+        setActionMessage("Failed to accept friend request. Please try again.");
+      }
     } catch (error) {
       console.error("Error accepting friend request:", error);
       setActionMessage("Failed to accept friend request. Please try again.");
@@ -150,22 +86,20 @@ export default function UserDetail() {
 
   // Handle rejecting a friend request
   const handleRejectFriendRequest = async () => {
-    if (!friendRequestStatus || !friendRequestStatus.id) return;
+    if (!userId) return;
+    
+    const requestStatus = getRequestStatus(userId);
+    if (!requestStatus || requestStatus.type !== "incoming") return;
     
     setIsSubmitting(true);
     try {
-      // Update the request status to "rejected"
-      const requestRef = doc(db, "friends", friendRequestStatus.id);
-      await updateDoc(requestRef, {
-        status: "rejected"
-      });
+      const success = await respondToRequest(requestStatus.request.id, 2); // 2 = rejected
       
-      setActionMessage("Friend request rejected.");
-      // Update local state
-      setFriendRequestStatus({
-        ...friendRequestStatus,
-        status: "rejected"
-      });
+      if (success) {
+        setActionMessage("Friend request rejected.");
+      } else {
+        setActionMessage("Failed to reject friend request. Please try again.");
+      }
     } catch (error) {
       console.error("Error rejecting friend request:", error);
       setActionMessage("Failed to reject friend request. Please try again.");
@@ -180,9 +114,13 @@ export default function UserDetail() {
     
     setIsSubmitting(true);
     try {
-      // Use your existing removeFriend function
-      await removeFriend(userId);
-      setActionMessage("Friend removed successfully.");
+      const success = await removeFriend(userId);
+      
+      if (success) {
+        setActionMessage("Friend removed successfully.");
+      } else {
+        setActionMessage("Failed to remove friend. Please try again.");
+      }
     } catch (error) {
       console.error("Error removing friend:", error);
       setActionMessage("Failed to remove friend. Please try again.");
@@ -191,13 +129,24 @@ export default function UserDetail() {
     }
   };
 
-  // Determine if users are friends (either through the hook or accepted request)
-  const userIsFriend = userId && (
-    isFriend(userId) || 
-    (friendRequestStatus?.status === "accepted")
-  );
+  // Get current relationship status
+  const getRelationshipStatus = () => {
+    if (!userId || !currentUserId) return null;
+    
+    if (userId === currentUserId) return "self";
+    if (isFriend(userId)) return "friend";
+    
+    const requestStatus = getRequestStatus(userId);
+    if (requestStatus) {
+      return requestStatus.type === "incoming" ? "incoming_request" : "outgoing_request";
+    }
+    
+    return "none";
+  };
+
+  const relationshipStatus = getRelationshipStatus();
   
-  if (loadingUser || loadingFriends) {
+  if (loadingUser || loadingFriends || loadingRequests) {
     return (
       <div className="p-4">
         <div className="max-w-4xl mx-auto">
@@ -275,18 +224,11 @@ export default function UserDetail() {
                   <p className="mt-1 text-sm text-gray-900">{user.id}</p>
                 </div>
 
-                {user.phone && (
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-500">Phone</h3>
-                    <p className="mt-1 text-sm text-gray-900">{user.phone}</p>
-                  </div>
-                )}
-
                 {user.createdAt && (
                   <div>
                     <h3 className="text-sm font-medium text-gray-500">Member Since</h3>
                     <p className="mt-1 text-sm text-gray-900">
-                      {new Date(user.createdAt).toLocaleDateString()}
+                      {new Date(user.createdAt.toDate()).toLocaleDateString()}
                     </p>
                   </div>
                 )}
@@ -301,64 +243,69 @@ export default function UserDetail() {
               </p>
             </div>
 
-            {/* Friend status indicator */}
-            {friendRequestStatus && (
-              <div className="mt-3 text-sm">
-                {friendRequestStatus.direction === "outgoing" && (
-                  <p className="text-gray-600">
-                    {friendRequestStatus.status === "pending" && "Friend request sent (pending)"}
-                    {friendRequestStatus.status === "accepted" && "Friends"}
-                    {friendRequestStatus.status === "rejected" && "Friend request rejected"}
-                  </p>
-                )}
-                {friendRequestStatus.direction === "incoming" && friendRequestStatus.status === "pending" && (
-                  <p className="text-gray-600">This user sent you a friend request</p>
-                )}
-              </div>
-            )}
+            {/* Relationship status indicator */}
+            <div className="mt-3 text-sm">
+              {relationshipStatus === "friend" && (
+                <p className="text-green-600 font-medium">✓ Friends</p>
+              )}
+              {relationshipStatus === "outgoing_request" && (
+                <p className="text-yellow-600">Friend request sent (pending)</p>
+              )}
+              {relationshipStatus === "incoming_request" && (
+                <p className="text-blue-600">This user sent you a friend request</p>
+              )}
+              {relationshipStatus === "self" && (
+                <p className="text-gray-600">This is your profile</p>
+              )}
+            </div>
 
             {/* Action buttons */}
             <div className="mt-6 flex space-x-3">
-  {!userIsFriend && !friendRequestStatus && (
-    <button
-      onClick={handleSendFriendRequest}
-      disabled={isSubmitting}
-      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-    >
-      Send Friend Request
-    </button>
-  )}
+              {relationshipStatus === "none" && (
+                <button
+                  onClick={handleSendFriendRequest}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSubmitting ? "Sending..." : "Send Friend Request"}
+                </button>
+              )}
 
-  {friendRequestStatus?.direction === "incoming" && friendRequestStatus.status === "pending" && (
-    <>
-      <button
-        onClick={handleAcceptFriendRequest}
-        disabled={isSubmitting}
-        className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-      >
-        Accept
-      </button>
-      <button
-        onClick={handleRejectFriendRequest}
-        disabled={isSubmitting}
-        className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
-      >
-        Reject
-      </button>
-    </>
-  )}
+              {relationshipStatus === "incoming_request" && (
+                <>
+                  <button
+                    onClick={handleAcceptFriendRequest}
+                    disabled={isSubmitting}
+                    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSubmitting ? "Accepting..." : "Accept Request"}
+                  </button>
+                  <button
+                    onClick={handleRejectFriendRequest}
+                    disabled={isSubmitting}
+                    className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSubmitting ? "Rejecting..." : "Reject Request"}
+                  </button>
+                </>
+              )}
 
-  {userIsFriend && (
-    <button
-      onClick={handleRemoveFriend}
-      disabled={isSubmitting}
-      className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 disabled:opacity-50"
-    >
-      Remove Friend
-    </button>
-  )}
-</div>
+              {relationshipStatus === "friend" && (
+                <button
+                  onClick={handleRemoveFriend}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSubmitting ? "Removing..." : "Remove Friend"}
+                </button>
+              )}
 
+              {relationshipStatus === "outgoing_request" && (
+                <p className="px-4 py-2 text-gray-600 bg-gray-100 rounded">
+                  Friend request pending
+                </p>
+              )}
+            </div>
           </div>
         </div>
       </div>

@@ -22,8 +22,8 @@ const db = getFirestore(app);
 export const COLLECTIONS = {
   USERS: "users",
   FRIENDS: "friends",
-  FRIEND_REQUESTS: "q5A98VdUnENvun7pe1Mn",
+  FRIEND_REQUESTS: "friendRequests", // Changed from "q5A98VdUnENvun7pe1Mn"
   TRIPS: "trips"
 };
 
-export { app, db }; 
+export { app, db };
