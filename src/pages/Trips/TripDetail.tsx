@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { auth, db } from '../../firebase/firebase';
-import { MapPin, Calendar, Clock, ArrowLeft, Edit, Trash2, Star, Phone, Globe, DollarSign } from 'lucide-react';
+import { doc, getDoc, updateDoc, deleteDoc, arrayUnion, arrayRemove, setDoc } from 'firebase/firestore';
+import { auth, db, COLLECTIONS } from '../../firebase/firebase';
+import { MapPin, Calendar, Clock, ArrowLeft, Edit, Trash2, Star, Phone, Globe, DollarSign, Bookmark, BookmarkCheck, ExternalLink } from 'lucide-react';
 import { useGoogleMaps } from '../../components/providers/GoogleMapsProvider';
+import { SavedPlaces } from '../../components/functional/trips/SavedPlaces';
 
 interface Trip {
   id: string;
@@ -14,6 +15,21 @@ interface Trip {
   until: { seconds: number };
   imageUrl: string;
   userId?: string;
+  savedHotels?: SavedPlace[];
+  savedRestaurants?: SavedPlace[];
+  savedActivities?: SavedPlace[];
+}
+
+interface SavedPlace {
+  place_id: string;
+  name: string;
+  formatted_address: string;
+  savedAt: number;
+  rating?: number;
+  price_level?: number;
+  photo_reference?: string;
+  formatted_phone_number?: string;
+  website?: string;
 }
 
 interface PlaceData {
@@ -41,15 +57,33 @@ export default function TripDetail() {
   const [restaurants, setRestaurants] = useState<PlaceData[]>([]);
   const [activities, setActivities] = useState<PlaceData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'hotels' | 'restaurants' | 'activities'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'hotels' | 'restaurants' | 'activities' | 'saved'>('overview');
   const [placesLoading, setPlacesLoading] = useState(false);
+
+  // Helper function to remove undefined values from an object
+  const removeUndefinedValues = (obj: any): any => {
+    const cleaned: any = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (value !== undefined) {
+        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+          const cleanedNested = removeUndefinedValues(value);
+          if (Object.keys(cleanedNested).length > 0) {
+            cleaned[key] = cleanedNested;
+          }
+        } else {
+          cleaned[key] = value;
+        }
+      }
+    }
+    return cleaned;
+  };
 
   useEffect(() => {
     const fetchTrip = async () => {
       if (!tripId) return;
       
       try {
-        const tripDoc = await getDoc(doc(db, 'trips', tripId));
+        const tripDoc = await getDoc(doc(db, COLLECTIONS.TRIPS, tripId));
         if (tripDoc.exists()) {
           const tripData = { id: tripDoc.id, ...tripDoc.data() } as Trip;
           
@@ -58,6 +92,11 @@ export default function TripDetail() {
             navigate('/dashboard');
             return;
           }
+          
+          // Initialize saved places arrays if they don't exist
+          if (!tripData.savedHotels) tripData.savedHotels = [];
+          if (!tripData.savedRestaurants) tripData.savedRestaurants = [];
+          if (!tripData.savedActivities) tripData.savedActivities = [];
           
           setTrip(tripData);
         } else {
@@ -126,7 +165,7 @@ export default function TripDetail() {
     if (!trip || !window.confirm('Are you sure you want to delete this trip?')) return;
 
     try {
-      await deleteDoc(doc(db, 'trips', trip.id));
+      await deleteDoc(doc(db, COLLECTIONS.TRIPS, trip.id));
       navigate('/dashboard');
     } catch (error) {
       console.error('Error deleting trip:', error);
@@ -135,7 +174,164 @@ export default function TripDetail() {
   };
 
   const getPhotoUrl = (photoRef: string) => {
+    if (!photoRef) return null;
     return `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=${photoRef}&key=${import.meta.env.VITE_GOOGLE_API_KEY}`;
+  };
+
+  const savePlace = async (place: PlaceData, type: 'hotels' | 'restaurants' | 'activities') => {
+    if (!trip) {
+      console.error('No trip data available');
+      alert('No trip data available. Please refresh the page.');
+      return;
+    }
+
+    if (!auth.currentUser) {
+      console.error('User not authenticated');
+      alert('You must be logged in to save places.');
+      return;
+    }
+
+    console.log('Saving place:', { place: place.name, type, tripId: trip.id });
+
+    // Create savedPlace object and filter out undefined values
+    const savedPlaceData = {
+      place_id: place.place_id,
+      name: place.name,
+      formatted_address: place.formatted_address,
+      rating: place.rating,
+      price_level: place.price_level,
+      photo_reference: place.photos?.[0]?.photo_reference,
+      formatted_phone_number: place.formatted_phone_number,
+      website: place.website,
+      savedAt: Date.now()
+    };
+
+    // Remove undefined values to prevent Firestore errors
+    const savedPlace: SavedPlace = Object.fromEntries(
+      Object.entries(savedPlaceData).filter(([_, value]) => value !== undefined)
+    ) as SavedPlace;
+
+    const fieldMap = {
+      hotels: 'savedHotels',
+      restaurants: 'savedRestaurants',
+      activities: 'savedActivities'
+    };
+
+    try {
+      console.log('Attempting to update document:', trip.id);
+      console.log('Field being updated:', fieldMap[type]);
+      console.log('Data being saved:', savedPlace);
+
+      // Try arrayUnion first
+      try {
+        await updateDoc(doc(db, COLLECTIONS.TRIPS, trip.id), {
+          [fieldMap[type]]: arrayUnion(savedPlace)
+        });
+      } catch (arrayUnionError) {
+        console.log('arrayUnion failed, trying alternative approach:', arrayUnionError);
+        
+        // Alternative approach: get current data and update manually
+        const tripDocRef = doc(db, COLLECTIONS.TRIPS, trip.id);
+        const tripDoc = await getDoc(tripDocRef);
+        
+        if (!tripDoc.exists()) {
+          throw new Error('Trip document not found');
+        }
+        
+        const currentData = tripDoc.data();
+        const currentPlaces = currentData[fieldMap[type]] || [];
+        
+        // Check if place is already saved
+        const alreadySaved = currentPlaces.some((p: SavedPlace) => p.place_id === savedPlace.place_id);
+        if (alreadySaved) {
+          alert('This place is already saved to your trip!');
+          return;
+        }
+        
+        // Clean the data before saving
+        const cleanedData = removeUndefinedValues({
+          ...currentData,
+          [fieldMap[type]]: [...currentPlaces, savedPlace]
+        });
+        
+        await setDoc(tripDocRef, cleanedData);
+      }
+
+      console.log('Successfully saved place to Firestore');
+
+      // Update local state
+      setTrip(prev => prev ? {
+        ...prev,
+        [fieldMap[type]]: [...(prev[fieldMap[type]] || []), savedPlace]
+      } : prev);
+
+      alert(`${place.name} saved to your trip!`);
+    } catch (error: any) {
+      console.error('Detailed error saving place:', {
+        error: error,
+        code: error.code,
+        message: error.message,
+        tripId: trip.id,
+        userId: auth.currentUser?.uid,
+        place: place.name
+      });
+      
+      // More specific error messages
+      if (error.code === 'permission-denied') {
+        alert('Permission denied. You may not own this trip or your session may have expired.');
+      } else if (error.code === 'not-found') {
+        alert('Trip not found. The trip may have been deleted.');
+      } else if (error.code === 'unauthenticated') {
+        alert('You are not authenticated. Please log in again.');
+      } else {
+        alert(`Failed to save place: ${error.message || 'Unknown error'}`);
+      }
+    }
+  };
+
+  const removePlace = async (placeId: string, type: 'hotels' | 'restaurants' | 'activities') => {
+    if (!trip) return;
+
+    const fieldMap = {
+      hotels: 'savedHotels',
+      restaurants: 'savedRestaurants',
+      activities: 'savedActivities'
+    };
+
+    const savedPlaces = trip[fieldMap[type]] || [];
+    const placeToRemove = savedPlaces.find(p => p.place_id === placeId);
+
+    if (!placeToRemove) return;
+
+    try {
+      await updateDoc(doc(db, COLLECTIONS.TRIPS, trip.id), {
+        [fieldMap[type]]: arrayRemove(placeToRemove)
+      });
+
+      // Update local state
+      setTrip(prev => prev ? {
+        ...prev,
+        [fieldMap[type]]: savedPlaces.filter(p => p.place_id !== placeId)
+      } : prev);
+
+      alert('Place removed from your trip!');
+    } catch (error) {
+      console.error('Error removing place:', error);
+      alert('Failed to remove place. Please try again.');
+    }
+  };
+
+  const isPlaceSaved = (placeId: string, type: 'hotels' | 'restaurants' | 'activities'): boolean => {
+    if (!trip) return false;
+    
+    const fieldMap = {
+      hotels: 'savedHotels',
+      restaurants: 'savedRestaurants',
+      activities: 'savedActivities'
+    };
+
+    const savedPlaces = trip[fieldMap[type]] || [];
+    return savedPlaces.some(p => p.place_id === placeId);
   };
 
   const renderStars = (rating?: number) => {
@@ -171,63 +367,133 @@ export default function TripDetail() {
     );
   };
 
-  const PlaceCard = ({ place }: { place: PlaceData }) => (
-    <div className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow">
-      {place.photos && place.photos[0] && (
-        <img
-          src={getPhotoUrl(place.photos[0].photo_reference)}
-          alt={place.name}
-          className="w-full h-48 object-cover"
-        />
-      )}
-      <div className="p-4">
-        <h3 className="font-semibold text-lg mb-2 line-clamp-2">{place.name}</h3>
-        <p className="text-gray-600 text-sm mb-3 line-clamp-2">{place.formatted_address}</p>
-        
-        <div className="flex items-center justify-between mb-3">
-          {renderStars(place.rating)}
-          {renderPriceLevel(place.price_level)}
-        </div>
+  const PlaceCard = ({ place, type }: { place: PlaceData; type: 'hotels' | 'restaurants' | 'activities' }) => {
+    const isSaved = isPlaceSaved(place.place_id, type);
+    const photoUrl = place.photos?.[0]?.photo_reference ? getPhotoUrl(place.photos[0].photo_reference) : null;
 
-        <div className="space-y-2">
-          {place.formatted_phone_number && (
-            <div className="flex items-center text-sm text-gray-600">
-              <Phone className="w-4 h-4 mr-2" />
-              <a href={`tel:${place.formatted_phone_number}`} className="hover:text-blue-600">
-                {place.formatted_phone_number}
-              </a>
+    return (
+      <div className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow">
+        {photoUrl ? (
+          <div className="relative">
+            <img
+              src={photoUrl}
+              alt={place.name}
+              className="w-full h-48 object-cover"
+              onError={(e) => {
+                // Hide broken images
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+            <button
+              onClick={() => isSaved ? removePlace(place.place_id, type) : savePlace(place, type)}
+              className={`absolute top-2 right-2 p-2 rounded-full shadow-lg transition-colors ${
+                isSaved 
+                  ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                  : 'bg-white text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              {isSaved ? <BookmarkCheck className="w-5 h-5" /> : <Bookmark className="w-5 h-5" />}
+            </button>
+          </div>
+        ) : (
+          <div className="relative h-48 bg-gradient-to-br from-gray-200 to-gray-300 flex items-center justify-center">
+            <div className="text-center text-gray-500">
+              <MapPin className="w-12 h-12 mx-auto mb-2" />
+              <p className="text-sm">No image available</p>
             </div>
-          )}
-          
-          {place.website && (
-            <div className="flex items-center text-sm text-gray-600">
-              <Globe className="w-4 h-4 mr-2" />
-              <a 
-                href={place.website} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="hover:text-blue-600 truncate"
-              >
-                Visit Website
-              </a>
-            </div>
-          )}
-          
-          {place.opening_hours?.open_now !== undefined && (
-            <div className="text-sm">
-              <span className={`inline-block px-2 py-1 rounded text-xs ${
-                place.opening_hours.open_now 
-                  ? 'bg-green-100 text-green-800' 
-                  : 'bg-red-100 text-red-800'
-              }`}>
-                {place.opening_hours.open_now ? 'Open Now' : 'Closed'}
+            <button
+              onClick={() => isSaved ? removePlace(place.place_id, type) : savePlace(place, type)}
+              className={`absolute top-2 right-2 p-2 rounded-full shadow-lg transition-colors ${
+                isSaved 
+                  ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                  : 'bg-white text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              {isSaved ? <BookmarkCheck className="w-5 h-5" /> : <Bookmark className="w-5 h-5" />}
+            </button>
+          </div>
+        )}
+        <div className="p-4">
+          <div className="flex items-start justify-between mb-2">
+            <h3 className="font-semibold text-lg line-clamp-2 flex-1">{place.name}</h3>
+            {isSaved && (
+              <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full flex-shrink-0">
+                Saved
               </span>
-            </div>
-          )}
+            )}
+          </div>
+          <p className="text-gray-600 text-sm mb-3 line-clamp-2">{place.formatted_address}</p>
+          
+          <div className="flex items-center justify-between mb-3">
+            {renderStars(place.rating)}
+            {renderPriceLevel(place.price_level)}
+          </div>
+
+          <div className="space-y-2 mb-4">
+            {place.formatted_phone_number && (
+              <div className="flex items-center text-sm text-gray-600">
+                <Phone className="w-4 h-4 mr-2 flex-shrink-0" />
+                <a href={`tel:${place.formatted_phone_number}`} className="hover:text-blue-600 truncate">
+                  {place.formatted_phone_number}
+                </a>
+              </div>
+            )}
+            
+            {place.website && (
+              <div className="flex items-center text-sm text-gray-600">
+                <Globe className="w-4 h-4 mr-2 flex-shrink-0" />
+                <a 
+                  href={place.website} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="hover:text-blue-600 truncate flex items-center"
+                >
+                  Visit Website
+                  <ExternalLink className="w-3 h-3 ml-1" />
+                </a>
+              </div>
+            )}
+            
+            {place.opening_hours?.open_now !== undefined && (
+              <div className="text-sm">
+                <span className={`inline-block px-2 py-1 rounded text-xs ${
+                  place.opening_hours.open_now 
+                    ? 'bg-green-100 text-green-800' 
+                    : 'bg-red-100 text-red-800'
+                }`}>
+                  {place.opening_hours.open_now ? 'Open Now' : 'Closed'}
+                </span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => isSaved ? removePlace(place.place_id, type) : savePlace(place, type)}
+              className={`flex-1 py-2 px-4 rounded-lg font-medium text-sm transition-colors ${
+                isSaved
+                  ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                  : 'bg-blue-600 text-white hover:bg-blue-700'
+              }`}
+            >
+              {isSaved ? 'Remove from Trip' : 'Save to Trip'}
+            </button>
+            
+            {place.website && (
+              <a
+                href={place.website}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center justify-center"
+              >
+                <ExternalLink className="w-4 h-4" />
+              </a>
+            )}
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   if (loading || !isLoaded) {
     return (
@@ -309,7 +575,8 @@ export default function TripDetail() {
               { key: 'overview', label: 'Overview' },
               { key: 'hotels', label: 'Hotels' },
               { key: 'restaurants', label: 'Restaurants' },
-              { key: 'activities', label: 'Activities' }
+              { key: 'activities', label: 'Activities' },
+              { key: 'saved', label: `Saved (${(trip.savedHotels?.length || 0) + (trip.savedRestaurants?.length || 0) + (trip.savedActivities?.length || 0)})` }
             ].map(tab => (
               <button
                 key={tab.key}
@@ -340,7 +607,7 @@ export default function TripDetail() {
       <div className="container mx-auto px-4 py-8">
         {activeTab === 'overview' && (
           <div className="max-w-4xl mx-auto">
-            <div className="bg-white rounded-lg shadow-md p-8">
+            <div className="bg-white rounded-lg shadow-md p-8 mb-8">
               <h2 className="text-2xl font-bold mb-6">Trip Overview</h2>
               <div className="grid md:grid-cols-2 gap-8">
                 <div>
@@ -370,6 +637,75 @@ export default function TripDetail() {
                 </div>
               </div>
             </div>
+
+            {/* Saved Places Summary */}
+            <div className="grid md:grid-cols-3 gap-6">
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <h3 className="text-lg font-semibold mb-4 flex items-center">
+                  <Bookmark className="w-5 h-5 mr-2 text-blue-600" />
+                  Saved Hotels ({trip.savedHotels?.length || 0})
+                </h3>
+                {trip.savedHotels && trip.savedHotels.length > 0 ? (
+                  <div className="space-y-2">
+                    {trip.savedHotels.slice(0, 3).map(hotel => (
+                      <div key={hotel.place_id} className="text-sm border-l-2 border-blue-200 pl-3">
+                        <p className="font-medium">{hotel.name}</p>
+                        <p className="text-gray-600 text-xs">{hotel.formatted_address}</p>
+                      </div>
+                    ))}
+                    {trip.savedHotels.length > 3 && (
+                      <p className="text-xs text-gray-500">+{trip.savedHotels.length - 3} more</p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 text-sm">No hotels saved yet</p>
+                )}
+              </div>
+
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <h3 className="text-lg font-semibold mb-4 flex items-center">
+                  <Bookmark className="w-5 h-5 mr-2 text-green-600" />
+                  Saved Restaurants ({trip.savedRestaurants?.length || 0})
+                </h3>
+                {trip.savedRestaurants && trip.savedRestaurants.length > 0 ? (
+                  <div className="space-y-2">
+                    {trip.savedRestaurants.slice(0, 3).map(restaurant => (
+                      <div key={restaurant.place_id} className="text-sm border-l-2 border-green-200 pl-3">
+                        <p className="font-medium">{restaurant.name}</p>
+                        <p className="text-gray-600 text-xs">{restaurant.formatted_address}</p>
+                      </div>
+                    ))}
+                    {trip.savedRestaurants.length > 3 && (
+                      <p className="text-xs text-gray-500">+{trip.savedRestaurants.length - 3} more</p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 text-sm">No restaurants saved yet</p>
+                )}
+              </div>
+
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <h3 className="text-lg font-semibold mb-4 flex items-center">
+                  <Bookmark className="w-5 h-5 mr-2 text-purple-600" />
+                  Saved Activities ({trip.savedActivities?.length || 0})
+                </h3>
+                {trip.savedActivities && trip.savedActivities.length > 0 ? (
+                  <div className="space-y-2">
+                    {trip.savedActivities.slice(0, 3).map(activity => (
+                      <div key={activity.place_id} className="text-sm border-l-2 border-purple-200 pl-3">
+                        <p className="font-medium">{activity.name}</p>
+                        <p className="text-gray-600 text-xs">{activity.formatted_address}</p>
+                      </div>
+                    ))}
+                    {trip.savedActivities.length > 3 && (
+                      <p className="text-xs text-gray-500">+{trip.savedActivities.length - 3} more</p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 text-sm">No activities saved yet</p>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
@@ -377,15 +713,22 @@ export default function TripDetail() {
           <div>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold">Hotels in {trip.location}</h2>
-              {hotels.length === 0 && (
-                <button
-                  onClick={() => searchPlaces('lodging')}
-                  disabled={placesLoading}
-                  className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
-                >
-                  {placesLoading ? 'Loading...' : 'Find Hotels'}
-                </button>
-              )}
+              <div className="flex gap-2">
+                {trip.savedHotels && trip.savedHotels.length > 0 && (
+                  <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
+                    {trip.savedHotels.length} saved
+                  </span>
+                )}
+                {hotels.length === 0 && (
+                  <button
+                    onClick={() => searchPlaces('lodging')}
+                    disabled={placesLoading}
+                    className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+                  >
+                    {placesLoading ? 'Loading...' : 'Find Hotels'}
+                  </button>
+                )}
+              </div>
             </div>
             
             {placesLoading ? (
@@ -404,7 +747,7 @@ export default function TripDetail() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {hotels.map(hotel => (
-                  <PlaceCard key={hotel.place_id} place={hotel} />
+                  <PlaceCard key={hotel.place_id} place={hotel} type="hotels" />
                 ))}
               </div>
             )}
@@ -415,15 +758,22 @@ export default function TripDetail() {
           <div>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold">Restaurants in {trip.location}</h2>
-              {restaurants.length === 0 && (
-                <button
-                  onClick={() => searchPlaces('restaurant')}
-                  disabled={placesLoading}
-                  className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
-                >
-                  {placesLoading ? 'Loading...' : 'Find Restaurants'}
-                </button>
-              )}
+              <div className="flex gap-2">
+                {trip.savedRestaurants && trip.savedRestaurants.length > 0 && (
+                  <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">
+                    {trip.savedRestaurants.length} saved
+                  </span>
+                )}
+                {restaurants.length === 0 && (
+                  <button
+                    onClick={() => searchPlaces('restaurant')}
+                    disabled={placesLoading}
+                    className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+                  >
+                    {placesLoading ? 'Loading...' : 'Find Restaurants'}
+                  </button>
+                )}
+              </div>
             </div>
             
             {placesLoading ? (
@@ -442,7 +792,7 @@ export default function TripDetail() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {restaurants.map(restaurant => (
-                  <PlaceCard key={restaurant.place_id} place={restaurant} />
+                  <PlaceCard key={restaurant.place_id} place={restaurant} type="restaurants" />
                 ))}
               </div>
             )}
@@ -453,15 +803,22 @@ export default function TripDetail() {
           <div>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold">Activities in {trip.location}</h2>
-              {activities.length === 0 && (
-                <button
-                  onClick={() => searchPlaces('tourist_attraction')}
-                  disabled={placesLoading}
-                  className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
-                >
-                  {placesLoading ? 'Loading...' : 'Find Activities'}
-                </button>
-              )}
+              <div className="flex gap-2">
+                {trip.savedActivities && trip.savedActivities.length > 0 && (
+                  <span className="bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-sm">
+                    {trip.savedActivities.length} saved
+                  </span>
+                )}
+                {activities.length === 0 && (
+                  <button
+                    onClick={() => searchPlaces('tourist_attraction')}
+                    disabled={placesLoading}
+                    className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+                  >
+                    {placesLoading ? 'Loading...' : 'Find Activities'}
+                  </button>
+                )}
+              </div>
             </div>
             
             {placesLoading ? (
@@ -480,10 +837,32 @@ export default function TripDetail() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {activities.map(activity => (
-                  <PlaceCard key={activity.place_id} place={activity} />
+                  <PlaceCard key={activity.place_id} place={activity} type="activities" />
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'saved' && (
+          <div className="space-y-8">
+            <SavedPlaces
+              places={trip.savedHotels || []}
+              type="hotels"
+              onRemove={(placeId) => removePlace(placeId, 'hotels')}
+            />
+            
+            <SavedPlaces
+              places={trip.savedRestaurants || []}
+              type="restaurants"
+              onRemove={(placeId) => removePlace(placeId, 'restaurants')}
+            />
+            
+            <SavedPlaces
+              places={trip.savedActivities || []}
+              type="activities"
+              onRemove={(placeId) => removePlace(placeId, 'activities')}
+            />
           </div>
         )}
       </div>

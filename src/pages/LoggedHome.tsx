@@ -62,6 +62,9 @@ export default function LoggedHome() {
         until: new Date(until),
         userId: auth.currentUser?.uid,
         imageUrl,
+        savedHotels: [],
+  savedRestaurants: [],
+  savedActivities: []
       });
       alert('Trip created successfully!');
       // Clear form
@@ -113,7 +116,7 @@ export default function LoggedHome() {
   // Show loading state while Google Maps or trips are loading
   if (!isLoaded || tripsLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-pink-900 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-purple-400 mx-auto mb-6"></div>
           <p className="text-white text-xl">
@@ -125,7 +128,7 @@ export default function LoggedHome() {
   }
 
   return (
-    <div className="relative overflow-hidden bg-gradient-to-br from-gray-900 via-purple-900 to-pink-900 min-h-screen">
+    <div className="relative overflow-hidden min-h-screen">
 
       <div className="relative z-10 container mx-auto px-4 py-8">
           {/* Header Section */}
